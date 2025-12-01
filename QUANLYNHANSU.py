@@ -81,9 +81,11 @@ def Login():
         #không đăng nhập được, thực hiện kiểm tra xem mã nhân viên được nhập có phải làm ở phodng nhân sự hoặc là giám đốc hay không
         # (giới hạn nhân viên được phép truy cập vào hệ thống)
         #điều kiện này đồng thời lồng ghép với điều kiện mã nhân viên có tồn tại hay không (vì không có thì sẽ được thông báo là không đúng đối tượng)
-        if cur.execute("SELECT * FROM NHANVIEN WHERE MANV = ? AND (PHONGBAN = N'Nhân sự' OR CHUCVU = N'Giám đốc')",(user)).rowcount!=0:
+        cur.execute("SELECT COUNT(*) FROM NHANVIEN WHERE MANV = ? AND (PHONGBAN = N'Nhân sự' OR CHUCVU = N'Giám đốc')",(user))
+        if cur.fetchone()[0]>0:
             #nếu đúng đối tượng trên, tiếp tục kiểm tra xem mã nhân viên đã tồn tại hay chưa (chưa xét tới đúng mật khẩu hay không)
-            if cur.execute("SELECT * FROM TAIKHOAN WHERE TENTAIKHOAN = ?",(user)).rowcount == 0:
+            cur.execute("SELECT COUNT(*) FROM NHANVIEN WHERE MANV = ? AND (PHONGBAN = N'Nhân sự' OR CHUCVU = N'Giám đốc')",(user))
+            if cur.fetchone()[0]>0:
                 messagebox.showwarning("thông báo","Tài khoản không tồn tại")
                 tb = messagebox.askyesno("thông báo","bạn muốn tạo tài khoản không?")
                 if tb>0:
@@ -132,13 +134,13 @@ def tao():
                 # (trừ trường hợp ở cửa sổ login nhập mã nhân viên nhầm lẫn giữa 2 loại thao tác là đăng nhập sai mât khẩu và tạo tài khoản mới)
                 #điều kiện này đồng thời lồng ghép với điều kiện mã nhân viên có tồn tại hay không 
                 # (vì không có thì sẽ được thông báo là không đúng đối tượng)
-                cur.execute("""SELECT MANV FROM NHANVIEN WHERE (MANV = ? AND CHUCVU = N'Giám đốc') OR (MANV=? AND PHONGBAN = N'Nhân sự')""", (username,username))
-                if cur.rowcount == 0 :
+                cur.execute("""SELECT COUNT(*) FROM NHANVIEN WHERE (MANV = ? AND CHUCVU = N'Giám đốc') OR (MANV=? AND PHONGBAN = N'Nhân sự')""", (username,username))
+                if cur.fetchone()[0] == 0 :
                     messagebox.showwarning("Lỗi","Chỉ Giám đốc hoặc nhân viên thuộc phòng nhân sự mới có thể tạo tài khoản")
                     return
                 #đảm bảo tên tài khoản(ứng với mã nhân viên) không bị tạo thêm lần thứ 2
-                cur.execute("SELECT * FROM TAIKHOAN WHERE TENTAIKHOAN = ?",(username,))
-                if cur.rowcount != 0:
+                cur.execute("SELECT COUNT(*) FROM TAIKHOAN WHERE TENTAIKHOAN = ?",(username,))
+                if cur.fetchone()[0]!= 0:
                     messagebox.showwarning("Lỗi","Tài khoản đã tồn tại, vui lòng chọn tên tài khoản khác")
                     return
                 #đúng đối tượng và chưa có tài khoản thì cho phép tạo tài khoản thành công
@@ -371,7 +373,7 @@ def main():
         gioitinh = stringGioiTinh.get()
 
         #các item đảm bảo được nhập đủ thông tin trước khi tiến hành xử lý
-        if not all([manv, ten, phongban, chucvu, cccd, mail, dienthoai, gioitinh]):
+        if not all([manv, ten, phongban, chucvu, cccd, mail, dienthoai, gioitinh,thamnien]):
             messagebox.showwarning("thiếu dữ liệu","vui lòng nhập đủ thông tin")
             return
         #khi thêm nhân viên mới thì nhân viên đó phải có thâm niên = 0 (sẽ được thay đổi đúng sau khi thêm hợp đồng)
@@ -387,7 +389,6 @@ def main():
         except ValueError:
             messagebox.showwarning("Lỗi", "Mã nhân viên không phù hợp, vui lòng kiểm tra lại")
             return
-        
         #nếu tên nhân viên quá dài thì được yêu cầu nhập lại
         if len(ten)>100:
             messagebox.showwarning("thông báo","vui lòng nhập tên ngắn gọn dưới 100 kí tự")
@@ -396,15 +397,15 @@ def main():
         if len(mail)>100:
             messagebox.showwarning("thông báo","vui lòng nhập email không quá 100 kí tự")
             return
+        
         #điện thoại phải là 10 số
+        if len(dienthoai)!=10:
+            messagebox.showwarning("thông báo","số điện thoại đủ 10 số")
         try:
-            dienthoai = float(dienthoai)
+            result = float(dienthoai)
         except ValueError:
             messagebox.showwarning("Lỗi", "Điện thoại phải là số.")
             return
-        dienthoai = str(dienthoai)
-        if len(dienthoai)!=10:
-            messagebox.showwarning("thông báo","số điện thoại đủ 10 số")
         
         #phòng ban và chức vụ được cố định (không được chọn hay nhập ngoài thì nó đã không tồn tại trong công ty)
         if phongban not in ('Giám đốc','Nhân sự','Tài chính','Kỹ thuật','Kinh doanh','Marketing','Hành chính'):
@@ -434,28 +435,31 @@ def main():
         cur = con.cursor()
         try:
             #kiểm tra mã nhân viên, cccd, điện thoại và email đã tồn tại chưa vì những dữ liệu trên là riêng biệt giữa các nhân viên (UNIQUE)
-            if cur.execute("SELECT MANV FROM NHANVIEN WHERE MANV=?", (manv,)).rowcount > 0:
+            cur.execute("SELECT COUNT(*) FROM NHANVIEN WHERE MANV=?", (manv,))
+            if cur.fetchone()[0] > 0:
                 messagebox.showwarning("Lỗi","Mã nhân viên đã tồn tại, vui lòng chọn mã khác")
                 return
-            if cur.execute("SELECT CCCD FROM NHANVIEN WHERE CCCD=?", (cccd,)).rowcount > 0:
+            cur.execute("SELECT COUNT(*) FROM NHANVIEN WHERE CCCD=?", (cccd,))
+            if cur.fetchone()[0] > 0:
                 messagebox.showwarning("Lỗi","CCCD đã tồn tại, vui lòng kiểm tra lại")
                 return
-            if cur.execute("SELECT DIENTHOAI FROM NHANVIEN WHERE DIENTHOAI=?", (dienthoai,)).rowcount > 0:
+            cur.execute("SELECT COUNT(*) FROM NHANVIEN WHERE DIENTHOAI=?", (dienthoai,))
+            if cur.fetchone()[0] > 0:
                 messagebox.showwarning("Lỗi","Số điện thoại đã tồn tại, vui lòng kiểm tra lại")
                 return
-            if cur.execute("SELECT EMAIL FROM NHANVIEN WHERE EMAIL =?",(mail,)).rowcount >0:
+            cur.execute("SELECT COUNT(*) FROM NHANVIEN WHERE EMAIL =?",(mail,))
+            if cur.fetchone()[0] >0:
                 messagebox.showwarning("Lỗi","Email đã tồn tại, vui lòng kiểm tra lại")
             #các điều kiện trên hợp lệ thì cho phép thêm thông tin nhân viên mới vào hệ thống
             cur.execute("INSERT INTO NHANVIEN VALUES (?,?,?,?,?,?,?,?,?,?)", \
                         (manv, ten, cccd, dienthoai, gioitinh, mail, ngaysinh, phongban, chucvu, thamnien))
             con.commit()
             messagebox.showinfo("Thành công", "Đã thêm nhân viên thành công.")
-            
+            con.close()
+            #load lại toàn bộ danh sách nhân viên để hiển thị thêm thông tin nhân viên vói vào hệ thống
+            load_data_nv()
         except Exception as e:
             messagebox.showerror("Lỗi", str(e))
-        con.close()
-        #load lại toàn bộ danh sách nhân viên để hiển thị thêm thông tin nhân viên vói vào hệ thống
-        load_data_nv()
         
 
     def xoa_nv():
@@ -481,18 +485,25 @@ def main():
         try:
             #không thể xóa thông tin giám đốc trực tiếp, nếu giám đốc đó từ chức (nếu có) 
             # thông tin cần xóa có thể thay đổi chức vụ khác rồi có thể thực hiện xóa
-            if cur.execute("SELECT MANV FROM NHANVIEN WHERE MANV=? AND CHUCVU = N'Giám đốc'", (manv,)).rowcount != 0:
+            cur.execute("SELECT COUNT(*) FROM NHANVIEN WHERE MANV=? AND CHUCVU = N'Giám đốc'", (manv,))
+            if cur.fetchone()[0] != 0:
                 messagebox.showwarning("Không thể xóa", "Không thể xóa Giám đốc khỏi hệ thống.")
                 return
             #nếu thông tin nhân viên muốn xóa còn được lưu trong hệ thống để quản lý thì không cho phép xóa
-            if cur.execute("SELECT MANV FROM HOPDONG WHERE MANV=?", (manv,)).rowcount > 0:
+            cur.execute("SELECT COUNT(*) FROM HOPDONG WHERE MANV=?", (manv,))
+            if cur.fetchone()[0] > 0:
                 messagebox.showwarning("Không thể xóa", "Nhân viên này có lịch sử hợp đồng, không thể xóa.")
                 return
-            if cur.execute("SELECT MANV FROM LUONG WHERE MANV=?", (manv,)).rowcount > 0 or \
-            cur.execute("SELECT MANV FROM CONG_NGAY WHERE MANV=?", (manv,)).rowcount > 0:
-                messagebox.showwarning("Không thể xóa", "Nhân viên này có dữ liệu lương hoặc công ngày, không thể xóa.")
+            cur.execute("SELECT COUNT(*) FROM LUONG WHERE MANV=?", (manv,))
+            if cur.fetchone()[0] > 0:
+                messagebox.showwarning("Không thể xóa", "Nhân viên này có dữ liệu lương, không thể xóa.")
                 return
-            if cur.execute("SELECT MANV FROM CHITIETLUONG WHERE MANV=?", (manv,)).rowcount > 0:
+            cur.execute("SELECT COUNT(*) FROM CONG_NGAY WHERE MANV=?", (manv,))
+            if cur.fetchone()[0] > 0:
+                messagebox.showwarning("Không thể xóa", "Nhân viên này có dữ liệu công ngày, không thể xóa.")
+                return
+            cur.execute("SELECT COUNT(*) FROM CHITIETLUONG WHERE MANV=?", (manv,))
+            if cur.fetchone()[0] > 0:
                 messagebox.showwarning("Không thể xóa", "Nhân viên này có dữ liệu chi tiết lương, không thể xóa.")
                 return
             #phù hợp các yêu cầu trên, khi xóa thông tin nhân viên thì xóa tài khoản đăng nhập hệ thống của họ (nếu có)
@@ -526,6 +537,7 @@ def main():
         ngaysinh = ngaysinh_dateentrynv.get_date()
         dienthoai = dienthoai_entrynv.get()
         gioitinh = stringGioiTinh.get()
+        
 
         if not all([manv_entrynv, ten, phongban, chucvu, cccd, mail, dienthoai, gioitinh, thamnien_entrynv]):
             messagebox.showwarning("thiếu dữ liệu","vui lòng nhập đủ thông tin")
@@ -579,16 +591,17 @@ def main():
         try:
             #kiểm tra các giá trị cccd, dienthoai và email muốn đổi cho nhân viên này không trùng với nhân viên khác
             # kể cả không thay đổi giá trị khác
-            if cur.execute("SELECT MANV FROM NHANVIEN WHERE CCCD=? AND MANV != ?", (cccd, old_manv)).rowcount > 0:
-                messagebox.showwarning("Lỗi","CCCD đã tồn tại cho nhân viên khác, vui lòng kiểm tra lại")
+            cur.execute("SELECT COUNT(*) FROM NHANVIEN WHERE CCCD=? AND MANV != ?", (cccd,old_manv))
+            if cur.fetchone()[0] > 0:
+                messagebox.showwarning("Lỗi","CCCD đã tồn tại, vui lòng kiểm tra lại")
                 return
-            if cur.execute("SELECT DIENTHOAI FROM NHANVIEN WHERE DIENTHOAI=? AND MANV != ?", (dienthoai, old_manv)).rowcount > 0:
-                messagebox.showwarning("Lỗi","Số điện thoại đã tồn tại cho nhân viên khác, vui lòng kiểm tra lại")
+            cur.execute("SELECT COUNT(*) FROM NHANVIEN WHERE DIENTHOAI=? AND MANV != ?", (dienthoai,old_manv))
+            if cur.fetchone()[0] > 0:
+                messagebox.showwarning("Lỗi","Số điện thoại đã tồn tại, vui lòng kiểm tra lại")
                 return
-            if cur.execute("SELECT EMAIL FROM NHANVIEN WHERE EMAIL=? AND MANV != ?", (mail, old_manv)).rowcount > 0:
-                messagebox.showwarning("Lỗi","Email đã tồn tại cho nhân viên khác, vui lòng kiểm tra lại")
-                return
-                
+            cur.execute("SELECT COUNT(*) FROM NHANVIEN WHERE EMAIL =? AND MANV != ?",(mail,old_manv))
+            if cur.fetchone()[0] >0:
+                messagebox.showwarning("Lỗi","Email đã tồn tại, vui lòng kiểm tra lại")
             cur.execute("""
                 UPDATE NHANVIEN 
                 SET HOTEN = ? , CCCD = ?, DIENTHOAI =?, GIOITINH = ?, EMAIL = ?, NGAYSINH = ?, PHONGBAN = ?, CHUCVU = ?
@@ -601,7 +614,8 @@ def main():
             #nhân viên được chọn để sửa thông tin (trừ mã nhân viên), kiểm tra xem nhân viên này có đổi chức vụ hay phòng ban để xử lý tài khoản đăng
             #nhập hệ thống
             #đặt trường hợp đã có tài khoản nhưng nhân viên đó chuyển công tác sang công việc khác mà không có phận sự đăng nhập hệ thống
-            if cur.execute("SELECT * FROM NHANVIEN WHERE MANV = ? AND (PHONGBAN = N'Nhân sự' OR CHUCVU = N'Giám đốc')",(old_manv,)).rowcount == 0:
+            cur.execute("SELECT COUNT(*) FROM NHANVIEN WHERE MANV = ? AND (PHONGBAN = N'Nhân sự' OR CHUCVU = N'Giám đốc')",(old_manv,))
+            if cur.fetchone()[0] == 0:
                 cur.execute("DELETE FROM TAIKHOAN WHERE TENTAIKHOAN = ?",(old_manv,))
             con.commit()  
         except Exception as e:
@@ -907,31 +921,41 @@ def main():
         cur = con.cursor()
         try:
             #kiểm tra mã nhân viên có đúng nhân viên của công ty hay không
-            if cur.execute("SELECT MANV FROM NHANVIEN WHERE MANV=?", (manv,)).rowcount == 0:
+            cur.execute("SELECT COUNT(*) FROM NHANVIEN WHERE MANV=?", (manv,))
+            if cur.fetchone()[0] == 0:
                 messagebox.showwarning("Lỗi","Mã nhân viên không tồn tại, vui lòng kiểm tra lại")
                 return
             #nếu nhập mã nhân viên của giám đốc thì không tạo hợp đồng
-            if cur.execute("SELECT MANV FROM NHANVIEN WHERE MANV = ? AND CHUCVU = N'Giám đốc'", (manv,)).rowcount != 0:
+            cur.execute("SELECT COUNT(*) FROM NHANVIEN WHERE MANV = ? AND CHUCVU = N'Giám đốc'", (manv,))
+            if cur.fetchone()[0] != 0:
                 messagebox.showwarning("Lỗi","Không thể tạo hợp đồng cho Giám đốc.")
                 return
             #kiểm tra mã hợp đồng mới có nhập trùng với mã hợp đồng trong hệ thống hay không
-            if cur.execute("SELECT MAHD FROM HOPDONG WHERE MAHD=?", (mahd,)).rowcount > 0:
+            cur.execute("SELECT COUNT(*) FROM HOPDONG WHERE MAHD=?", (mahd,))
+            if cur.fetchone()[0] > 0:
                 messagebox.showwarning("Lỗi","Mã hợp đồng đã tồn tại, vui lòng chọn mã khác")
                 return
             #hệ thống chỉ lưu hợp đồng còn thời hạn (nếu hết hạn thì tạo hợp đồng mới)
             #trường hợp nhân viên gia hạn hợp đồng để tiếp tục làm thì tạo hợp đồng mới với ngày hiệu lực của hợp đồng cũ để giữ thâm niên
             today_str = date.today().strftime('%Y-%m-%d')
-            cur.execute("SELECT * FROM HOPDONG WHERE MANV=? AND NGAY_HET_HAN >= ?", (manv, today_str))
-            if cur.fetchone():
+            cur.execute("SELECT COUNT(*) FROM HOPDONG WHERE MANV=? AND NGAY_HET_HAN >= ?", (manv, today_str))
+            if cur.fetchone() > 0:
                 messagebox.showwarning("Lỗi","Nhân viên này đang có hợp đồng còn thời hạn, không thể tạo thêm hợp đồng mới")
                 return
             #nếu mã nhân viên đã có tồn tại hợp đồng cũ đã hết hạn thì lấy ngày hết hạn của hợp đồng để đối chiếu
-            elif cur.execute("SELECT NGAY_HET_HAN FROM HOPDONG WHERE MANV = ?",(manv,)).rowcount!=0:
+            cur.execute("SELECT MAX(NGAY_HET_HAN) FROM HOPDONG WHERE MANV = ?",(manv,))
                 #nếu ngày hết hạn hợp đồng cũ với ngày bắt đầu hợp đồng mới trong khoảng 1 tuần thì lấy thâm niên hợp đồng cũ 
-                if (ngaybatdau - cur.fetchone()[0]).days < 7:
-                    ngaythamnien = cur.fetchone()[0]
+            ngayhethan = cur.fetchone()[0]
+            if ngayhethan is not None:
+                if ngaybatdau < ngayhethan:
+                    messagebox.showwarning("thông báo","không thể tạo hợp đồng mới trong khi hợp đồng khác còn hiệu lực")
+                    return
+                if (ngaybatdau - ngayhethan).days >=0 and (ngaybatdau - ngayhethan).days <= 7:
+                    ngaythamnien = ngayhethan
                 else:
                     ngaythamnien = ngaybatdau
+            else:
+                ngaythamnien = ngaybatdau
 
             #giới hạn loại hợp đồng theo thời hạn làm việc
             if thoihan < 0.5 and loaihd != 'Thực tập':
@@ -958,7 +982,8 @@ def main():
                 messagebox.showwarning("Lỗi","Hợp đồng dài hạn có lương cơ bản phải từ 50,000 trở lên, vui lòng kiểm tra lại")
                 return
             #kiểm tra mã hợp đồng
-            if cur.execute("SELECT * FROM HOPDONG WHERE MAHD = ?",(mahd)).rowcount!=0:
+            cur.execute("SELECT COUNT(*) FROM HOPDONG WHERE MAHD = ?",(mahd))
+            if cur.fetchone()[0]!=0:
                 messagebox.showwarning("thông báo","mã hợp đồng đã tồn tại, vui lòng nhập mã hợp đồng khác")
                 return
             
@@ -976,7 +1001,7 @@ def main():
         load_data_hd()
 
     def xoa_hd():
-        selected = tree.selection() 
+        selected = treehd.selection() 
         if not selected: 
             messagebox.showwarning("Chưa chọn", "Hãy chọn hợp đồng để xóa") 
             return 
@@ -984,16 +1009,28 @@ def main():
         con = connect_db() 
         cur = con.cursor() 
         #không xóa hợp đồng còn thời hạn
-        if cur.execute("SELECT MAND FROM HOPDONG WHERE MAHD = ? AND NGAY_HET_HAN >= ?", (mahd,date.today())).rowcount > 0:
-            messagebox.showwarning("Không thể xóa", "Hợp đồng này còn thời hạn, không thể xóa.")
-            con.close()
+        today_str = date.today().strftime('%Y-%m-%d')
+        cur.execute("SELECT COUNT(*) FROM HOPDONG WHERE MAHD=? AND NGAY_HET_HAN >= ?", (mahd, today_str))
+        if cur.fetchone() > 0:
+            messagebox.showwarning("Lỗi","Nhân viên này đang có hợp đồng còn thời hạn, không thể tạo thêm hợp đồng mới")
             return
         #chắc chắn mã hợp đồng đã tồn tại để xóa
-        if cur.execute("SELECT * FROM HOPDONG WHERE MAHD = ?",(mahd,)).rowcount==0:
+        cur.execute("SELECT COUNT(*) FROM HOPDONG WHERE MAHD = ?",(mahd,))
+        if cur.fetchone()[0]==0:
             messagebox.showwarning("thông báo","mã hợp đồng không tồn tại, vui lòng chọn hợp đồng để xóa")
             return
-
+        cur.execute("SELECT COUNT(*) FROM CONG_NGAY WHERE MANV IN (SELECT MANV FROM HOPDONG WHERE MAHD = ?)",(mahd,))
+        if cur.fetchone()[0]!=0:
+            messagebox.showwarning("thông báo","thông tin nhân viên còn lưu công ngày, không thể xóa hợp đồng")
+            return
+        cur.execute("SELECT COUNT(*) FROM LUONG WHERE MANV IN (SELECT MANV FROM HOPDONG WHERE MAHD = ?)",(mahd,))
+        if cur.fetchone()[0]!=0:
+            messagebox.showwarning("thông báo","thông tin nhân viên còn lưu lương, không thể xóa hợp đồng")
+            return
+        
         cur.execute("DELETE FROM HOPDONG WHERE MAHD=?", (mahd,)) 
+        #nếu mã nhân viên không còn hợp đồng còn hạn thì cập nhật thâm niên là 0
+        #chỉ giữ thâm niên cũ nếu không xóa hợp đồng cũ và tạo liền hợp đồng mới
         cur.execute("UPDATE NHANVIEN SET THAMNIEN = 0 WHERE MANV NOT IN (SELECT MANV FROM HOPDONG WHERE NGAY_HET_HAN >= ?)", (date.today(),))
         con.commit() 
         con.close() 
@@ -1010,7 +1047,6 @@ def main():
         mahd = mahd_entryhd.get()
         manv = manv_entryhd.get()
         luongcb = luongcb_entryhd.get()
-
         con = connect_db() 
         cur = con.cursor() 
         tb = messagebox.askyesno("Xác nhận","bạn có chắc chắn muốn sửa hợp đồng này không?")
@@ -1030,21 +1066,22 @@ def main():
                 messagebox.showwarning("thông báo","vui lòng mã hợp đồng 5 kí tự")
                 return
             #sửa hợp đồng với mã nhân viên có tồn tại
-            if cur.execute("SELECT MANV FROM NHANVIEN WHERE MANV=?", (manv,)).rowcount == 0:
+            cur.execute("SELECT COUNT(*) FROM NHANVIEN WHERE MANV=?", (manv,))
+            if cur.fetchone()[0] == 0:
                 messagebox.showwarning("Lỗi","Mã nhân viên không tồn tại, vui lòng kiểm tra lại")
                 return
             #không đổi hợp đồng gán cho giám đốc
-            if cur.execute("SELECT MANV FROM NHANVIEN WHERE MANV = ? AND CHUCVU = N'Giám đốc'", (manv,)).rowcount != 0:
+            cur.execute("SELECT COUNT(*) FROM NHANVIEN WHERE MANV = ? AND CHUCVU = N'Giám đốc'", (manv,))
+            if cur.fetchone()[0] != 0:
                 messagebox.showwarning("Lỗi","Không thể tạo hợp đồng cho Giám đốc.")
                 return
             #chỉ sửa hợp đồng đã tồn tại 
-            if cur.execute("SELECT MAHD FROM HOPDONG WHERE MAHD=?", (mahd,)).rowcount == 0:
+            cur.execute("SELECT COUNT(*) FROM HOPDONG WHERE MAHD=?", (mahd,))
+            if cur.fetchone()[0] == 0:
                 messagebox.showwarning("Lỗi","Mã hợp đồng không tồn tại, vui lòng kiểm tra lại")
                 return
-            
-            tb = messagebox.askyesno("thông báo","bạn có muốn sửa thông tin hợp đồng không? (chỉ sửa được lương cơ bản và mã nhân viên)")
+            tb = messagebox.askyesno("thông báo","bạn có muốn sửa thông tin hợp đồng không? (chỉ sửa được lương cơ bản, mã nhân viên)")
             cur.execute("""UPDATE HOPDONG SET MANV = ?,LUONGCB=? WHERE MAHD = ?""", (manv,luongcb,mahd)) 
-            
         con.commit() 
         con.close() 
         load_data_hd() 
@@ -1147,7 +1184,7 @@ def main():
                 mahd_entryhd.insert(0, values[0])    
                 cmbLoaiHD.set(values[1])  
                 ngayki_dateentryhd.set_date(values[2]) 
-                thoihan_entryhd.insert(0, values[3])     
+                thoihan_entryhd.insert(0, f"{float(values[3]):.1f}")     
                 manv_entryhd.insert(0,values[4])
                 ngaybatdau_dateentryhd.set_date(values[5]) 
                 ngayketthuc_dateentryhd.set_date(values[6]) 
@@ -1261,25 +1298,28 @@ def main():
         cur = con.cursor()
         try:
             #mã nhân viên phải tồn tại hoặc có hợp đồng còn hạn mới được chấm công
-            if cur.execute("""SELECT MANV FROM NHANVIEN WHERE (MANV NOT IN (SELECT MANV FROM HOPDONG) 
-                           OR MANV NOT IN (SELECT MANV FROM HOPDONG WHERE NGAY_HET_HAN >= ?)) AND MANV = ?""", (date.today(),manv)).rowcount != 0:
+            cur.execute("""SELECT COUNT(*) FROM NHANVIEN WHERE (MANV NOT IN (SELECT MANV FROM HOPDONG) 
+                           OR MANV NOT IN (SELECT MANV FROM HOPDONG WHERE NGAY_HET_HAN >= ?)) AND MANV = ?""", (date.today(),manv))
+            if cur.fetchone()[0] > 0:
                 messagebox.showwarning("Lỗi","Không thể chấm công cho nhân viên không có hợp đồng hoặc hợp đồng đã hết hạn.")
                 return
+            #ngoài thời gian hợp đồng thì không được nhập công
+            cur.execute("""SELECT COUNT(*) FROM HOPDONG WHERE MANV = ? AND (NGAY_HIEU_LUC > ? OR NGAY_HET_HAN < ?) 
+                           AND MAHD IN (SELECT MAHD FROM HOPDONG WHERE NGAY_HET_HAN >= ?)""",(manv,ngaylam,ngaylam,date.today()))
+            if cur.fetchone()[0] > 0:
+                messagebox.showwarning("thông báo","ngày công nằm ngoài giới hạn hợp đồng của nhân viên này")
+                return
             #giám đốc không có hợp đồng nên không chấm công
-            if cur.execute("SELECT MANV FROM NHANVIEN WHERE CHUCVU = 'Giám đốc' AND MANV = ?", (manv)).rowcount != 0:
+            cur.execute("SELECT COUNT(*) FROM NHANVIEN WHERE CHUCVU = 'Giám đốc' AND MANV = ?", (manv,))
+            if cur.fetchone()[0] > 0:
                 messagebox.showwarning("Lỗi","Không thể chấm công cho Giám đốc.")
                 return
             #nếu đã chấm công cùng ngày thì không cho nhập lần thứ 2
-            if cur.execute("SELECT * FROM CONG_NGAY WHERE MANV = ? AND NGAYLAM = ?", (manv,ngaylam)) != 0:
+            cur.execute("SELECT COUNT(*) FROM CONG_NGAY WHERE MANV = ? AND NGAYLAM = ?", (manv,ngaylam))
+            if cur.fetchone()[0] > 0:
                 messagebox.showwarning("trùng dữ liệu","nhân viên đã được chấm công trong ngày này rồi")
                 return
-            #ngoài thời gian hợp đồng thì không được nhập công
-            if cur.execute("""SELECT * FROM HOPDONG WHERE MANV = ? AND (NGAY_HIEU_LUC > ? OR NGAY_HET_HAN < ?) 
-                           AND MAHD IN (SELECT MAHD FROM HOPDONG WHERE NGAY_HET_HAN >= ?))""",(manv,ngaylam,ngaylam,date.today())).rowcount != 0:
-                messagebox.showwarning("thông báo","ngày công nằm ngoài giới hạn hợp đồng của nhân viên này")
-                return
-            else:
-                cur.execute("INSERT INTO CONG_NGAY (MANV,NGAYLAM,GIOCHINH,TANGCA) VALUES (?,?,?,?)", (manv,ngaylam,giolam,tangca))
+            cur.execute("INSERT INTO CONG_NGAY (MANV,NGAYLAM,GIOCHINH,TANGCA) VALUES (?,?,?,?)", (manv,ngaylam,giolam,tangca))
                 
             con.commit()
         except Exception as e:
@@ -1296,9 +1336,10 @@ def main():
         ngaylam = treecn.item(selected)["values"][1]
         con = connect_db()
         cur = con.cursor()
-        #đã được tính lương vì để tính luoeng phải tổng hợp giờ làm để tính lương nên không xóa
-        if cur.execute("SELECT * FROM LUONG WHERE MANV = ? AND THANG = ?",(manv,str(ngaylam.month)+'/'+str(ngaylam.year))).rowcount != 0:
-            messagebox.showwarning("thông báo","ngay công này đã được tính lương, không thể xóa được")
+        #đã được tính lương vì để tính lương phải tổng hợp giờ làm để tính lương nên không xóa
+        cur.execute("SELECT COUNT(*) FROM LUONG L,CONG_NGAY CN WHERE L.MANV = ? AND L.THANG = FORMAT(CN.NGAYLAM, 'MM/yyyy')",(manv,))
+        if cur.fetchone()[0] != 0:
+            messagebox.showwarning("thông báo","ngày công này đã được tính lương, không thể xóa được")
             return
         cur.execute("DELETE FROM CONG_NGAY WHERE MANV=? AND NGAYLAM = ?", (manv,ngaylam))
         con.commit()
@@ -1308,22 +1349,48 @@ def main():
     def sua_cn():
         selected = treecn.selection() 
         if not selected: 
-            messagebox.showwarning("Chưa chọn", "Hãy chọn nhân viên để sửa") 
+            messagebox.showwarning("Chưa chọn", "Hãy chọn công ngày để sửa") 
             return 
         luu_cn()
 
     def luu_cn():
         manv = manv_entrycn.get()
-        giolam = giolam_entrycn.get()
-        tangca = tangca_entrycn.get()
+        giolam = int(giolam_entrycn.get())
+        tangca = int(tangca_entrycn.get())
         ngaylam = ngaylam_dateentrycn.get_date()
+        if manv == "" or ngaylam == "" or giolam_entrycn.get() == "" or tangca_entrycn.get() == "":
+            messagebox.showwarning("thiếu dữ liệu","vui lòng nhập đủ thông tin")
+            return
+        #giờ làm chính chỉ tối đa 8 tiếng
+        if giolam<0 or giolam>8:
+            messagebox.showwarning("thông báo","vui lòng nhập số giờ làm phù hợp (lớn hơn hoặc bằng 0 và nhỏ hơn hoặc bằng 8)")
+            return
+        #tăng ca tối đa 4 tiếng
+        if tangca<0 or tangca>4:
+            messagebox.showwarning("thông báo","vui lòng nhập số giờ tăng ca phù hợp (lớn hơn hoặc bằng 0 và nhỏ hơn hoặc bằng 4)")
+            return
+        #mã nhân viên đúng định dạng
+        if len(manv)!=5 or manv[0:2]!='NV':
+            messagebox.showwarning("thông báo","vui lòng mã nhân viên 5 kí tự")
+            return
+        try:
+            result = float(manv[2:])
+        except ValueError:
+            messagebox.showwarning("Lỗi", "Mã nhân viên không hợp lệ")
+            return
+        #không nhập công cho ngày sau ngày nhập
+        if ngaylam > date.today():
+            messagebox.showwarning("thông báo","vui lòng nhập ngày làm phù hợp (không được sau ngày hiện tại)")
+            return
+        
         con = connect_db() 
         cur = con.cursor()
         #đã tính lương nên không được sửa thông tin công ngày của tháng đó
-        if cur.execute("SELECT * FROM LUONG WHERE MANV = ? AND THANG = ?",(manv,str(ngaylam.month)+'/'+str(ngaylam.year))).rowcount != 0:
-            messagebox.showwarning("thông báo","ngay công này đã được tính lương, không thể chỉnh sửa được")
+        cur.execute("SELECT COUNT(*) FROM LUONG L,CONG_NGAY CN WHERE L.MANV = ? AND L.THANG = FORMAT(CN.NGAYLAM, 'MM/yyyy')",(manv,))
+        if cur.fetchone()[0] != 0:
+            messagebox.showwarning("thông báo","ngày công này đã được tính lương, không thể sửa được")
             return
-        cur.execute("""UPDATE CONG_NGAY SET GIOLAM = ?,TANGCA = ? WHERE MANV = ? AND NGAYLAM = ?""", (giolam,tangca,manv,ngaylam))
+        cur.execute("""UPDATE CONG_NGAY SET GIOCHINH = ?,TANGCA = ? WHERE MANV = ? AND NGAYLAM = ?""", (giolam,tangca,manv,ngaylam))
         con.commit()
         con.close() 
         load_data_cn()
@@ -2106,7 +2173,8 @@ def main():
                 messagebox.showwarning("thông báo","không thể xóa tài khoản đang đăng nhập hệ thống")
                 return
             #nếu mã nhân viên đó giữ chức vụ giám đốc thì không được xóa trực tiếp
-            if cur.execute("SELECT * FROM NHANVIEN WHERE MANV = ? AND CHUCVU = N'Giám đốc'", (username,)).rowcount !=0:
+            cur.execute("SELECT COUNT(*) FROM NHANVIEN WHERE MANV = ? AND CHUCVU = N'Giám đốc'", (username,))
+            if cur.fetchone()[0] !=0:
                 messagebox.showwarning("Lỗi","Không thể xóa tài khoản của giám đốc")
                 return
             
@@ -2168,6 +2236,7 @@ def main():
                 username_entry.insert(0, values[0])    
                 con = connect_db()
                 cur = con.cursor()
+                #hiển thị mã nhân viên dạng *
                 mk = ""
                 for char in cur.execute("SELECT PASS FROM TAIKHOAN WHERE TENTAIKHOAN = ?",(values[0])).fetchone()[0]:
                     mk = mk + '*'
